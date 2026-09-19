@@ -1,66 +1,72 @@
 import os
 import logging
-import json
-import urllib.request
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from groq import Groq
 
-logging.basicConfig(level=logging.INFO)
+# Ρύθμιση Logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+# Ανάκτηση μεταβλητών από το περιβάλλον (Railway Variables)
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-def call_groq_api(prompt_text):
-    if not GROQ_API_KEY:
-        return "⚠️ Λείπει το GROQ_API_KEY από τις μεταβλητές περιβάλλοντος!"
-    
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY.strip()}",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-    }
-    
-    payload = {
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {"role": "system", "content": "Είσαι ο Jarvis, ένας έξυπνος, φιλικός και εξυπηρετικός AI βοηθός. Απάντα πάντα στα ελληνικά."},
-            {"role": "user", "content": prompt_text}
-        ],
-        "temperature": 0.7
-    }
+# Έλεγχος αν υπάρχουν τα Keys
+if not TELEGRAM_BOT_TOKEN:
+    raise ValueError("❌ Λείπει το TELEGRAM_BOT_TOKEN! Πρόσθεσέ το στα Variables του Railway.")
+if not GROQ_API_KEY:
+    raise ValueError("❌ Λείπει το GROQ_API_KEY! Πρόσθεσέ το στα Variables του Railway.")
+
+# Αρχικοποίηση Groq Client
+groq_client = Groq(api_key=GROQ_API_KEY)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Εντολή /start"""
+    await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Στείλε μου μήνυμα για να μιλήσουμε!")
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Διαχείριση μηνυμάτων από τον χρήστη"""
+    user_text = update.message.text
     
     try:
-        data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+        # Κλήση στο Groq API με το νέο ενεργό μοντέλο
+        chat_completion = groq_client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Είσαι ένας χρήσιμος, φιλικός και έξυπνος AI βοηθός με το όνομα Jarvis."
+                },
+                {
+                    "role": "user",
+                    "content": user_text,
+                }
+            ],
+            model="llama-3.3-70b-versatile",
+        )
         
-        with urllib.request.urlopen(req) as response:
-            result = json.loads(response.read().decode('utf-8'))
-            if "choices" in result and len(result["choices"]) > 0:
-                return result["choices"][0]["message"]["content"]
-            return "Δεν πήρα έγκυρη απάντηση."
-    except urllib.error.HTTPError as e:
-        return f"⚠️ Σφάλμα API ({e.code}): Βεβαιώσου ότι το GROQ_API_KEY στο Railway είναι σωστό!"
+        # Απάντηση στον χρήστη
+        bot_response = chat_completion.choices[0].message.content
+        await update.message.reply_text(bot_response)
+
     except Exception as e:
-        return f"⚠️ Σφάλμα: {str(e)}"
+        logger.error(f"Σφάλμα κατά την επεξεργασία: {e}")
+        await update.message.reply_text("⚠️ Προέκυψε σφάλμα κατά την επικοινωνία με το Groq API.")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Τώρα είμαι έτοιμος και λειτουργώ 100%!")
+def main() -> None:
+    """Εκκίνηση του Bot"""
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_text = update.message.text
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    reply = call_groq_api(user_text)
-    await update.message.reply_text(reply)
+    # Handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-if __name__ == '__main__':
-    TOKEN = os.environ.get("TELEGRAM_TOKEN")
-    if not TOKEN:
-        print("⚠️ Δεν βρέθηκε TELEGRAM_TOKEN!")
-    else:
-        app = ApplicationBuilder().token(TOKEN).build()
-        app.add_handler(CommandHandler("start", start))
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Εκκίνηση Bot
+    logger.info("Το Telegram Bot ξεκίνησε...")
+    app.run_polling()
 
-        print("Ο Jarvis ξεκινάει επιτυχώς...")
-        app.run_polling(drop_pending_updates=True)
+if __name__ == "__main__":
+    main()
