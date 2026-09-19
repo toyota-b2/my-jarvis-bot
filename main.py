@@ -7,7 +7,6 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 
 logging.basicConfig(level=logging.INFO)
 
-# Χρήση του δωρεάν Groq API ή HuggingFace Router
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 def call_groq_api(prompt_text):
@@ -17,8 +16,9 @@ def call_groq_api(prompt_text):
     url = "https://api.groq.com/openai/v1/chat/completions"
     
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {GROQ_API_KEY.strip()}",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
     }
     
     payload = {
@@ -39,8 +39,10 @@ def call_groq_api(prompt_text):
             if "choices" in result and len(result["choices"]) > 0:
                 return result["choices"][0]["message"]["content"]
             return "Δεν πήρα έγκυρη απάντηση."
+    except urllib.error.HTTPError as e:
+        return f"⚠️ Σφάλμα API ({e.code}): Βεβαιώσου ότι το GROQ_API_KEY στο Railway είναι σωστό!"
     except Exception as e:
-        return f"⚠️ Σφάλμα API: {str(e)}"
+        return f"⚠️ Σφάλμα: {str(e)}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Τώρα είμαι έτοιμος και λειτουργώ 100%!")
