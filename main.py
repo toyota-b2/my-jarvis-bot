@@ -7,48 +7,48 @@ from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, fil
 
 logging.basicConfig(level=logging.INFO)
 
-HF_TOKEN = os.environ.get("HF_TOKEN")
-API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-Coder-32B-Instruct"
+# Χρήση του δωρεάν Groq API ή HuggingFace Router
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-def call_huggingface(prompt_text):
-    if not HF_TOKEN:
-        return "⚠️ Λείπει το HF_TOKEN από τις μεταβλητές περιβάλλοντος!"
+def call_groq_api(prompt_text):
+    if not GROQ_API_KEY:
+        return "⚠️ Λείπει το GROQ_API_KEY από τις μεταβλητές περιβάλλοντος!"
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
     
     headers = {
-        "Authorization": f"Bearer {HF_TOKEN}",
+        "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
     
     payload = {
-        "inputs": f"<|im_start|>system\nΕίσαι ο Jarvis, ένας έξυπνος, φιλικός και εξυπηρετικός AI βοηθός. Απάντα πάντα στα ελληνικά.<|im_end|>\n<|im_start|>user\n{prompt_text}<|im_end|>\n<|im_start|>assistant\n",
-        "parameters": {
-            "max_new_tokens": 500,
-            "temperature": 0.7
-        }
+        "model": "llama-3.3-70b-versatile",
+        "messages": [
+            {"role": "system", "content": "Είσαι ο Jarvis, ένας έξυπνος, φιλικός και εξυπηρετικός AI βοηθός. Απάντα πάντα στα ελληνικά."},
+            {"role": "user", "content": prompt_text}
+        ],
+        "temperature": 0.7
     }
     
     try:
         data = json.dumps(payload).encode('utf-8')
-        req = urllib.request.Request(API_URL, data=data, headers=headers, method='POST')
+        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
         
         with urllib.request.urlopen(req) as response:
             result = json.loads(response.read().decode('utf-8'))
-            if isinstance(result, list) and len(result) > 0:
-                full_text = result[0].get("generated_text", "")
-                if "<|im_start|>assistant\n" in full_text:
-                    return full_text.split("<|im_start|>assistant\n")[-1].replace("<|im_end|>", "").strip()
-                return full_text
+            if "choices" in result and len(result["choices"]) > 0:
+                return result["choices"][0]["message"]["content"]
             return "Δεν πήρα έγκυρη απάντηση."
     except Exception as e:
         return f"⚠️ Σφάλμα API: {str(e)}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Λειτουργώ κανονικά!")
+    await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Τώρα είμαι έτοιμος και λειτουργώ 100%!")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-    reply = call_huggingface(user_text)
+    reply = call_groq_api(user_text)
     await update.message.reply_text(reply)
 
 if __name__ == '__main__':
