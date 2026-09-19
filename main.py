@@ -1,70 +1,76 @@
 import os
 import logging
 import asyncio
-import requests
-import feedparser
+import json
+import urllib.request
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 logging.basicConfig(level=logging.INFO)
 
 HF_TOKEN = os.environ.get("HF_TOKEN")
-API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-72B-Instruct"
+# Χρήση του ανοιχτού μοντέλου Qwen2.5 μέσω Inference API
+API_URL = "https://api-inference.huggingface.co/models/Qwen/Qwen2.5-Coder-32B-Instruct"
 
 user_memories = {}
 
-def query_huggingface(messages):
-    headers = {"Authorization": f"Bearer {HF_TOKEN}"}
-    payload = {
-        "inputs": messages[-1]["content"],
-        "parameters": {"max_new_tokens": 500, "return_full_text": False}
+def call_huggingface(prompt_text):
+    if not HF_TOKEN:
+        return "⚠️ Λείπει το HF_TOKEN από τις μεταβλητές περιβάλλοντος!"
+    
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        "Content-Type": "application/json"
     }
-    response = requests.post(API_URL, headers=headers, json=payload)
-    result = response.json()
-    if isinstance(result, list) and len(result) > 0:
-        return result[0].get("generated_text", "Δεν πήρα απάντηση.")
-    elif "error" in result:
-        return f"⚠️ HF Error: {result['error']}"
-    return "⚠️ Σφάλμα απόκρισης."
+    
+    payload = {
+        "inputs": f"<|im_start|>system\nΕίσαι ο Jarvis, ένας έξυπνος, φιλικός και εξυπηρετικός AI βοηθός. Απάντα πάντα στα ελληνικά.<|im_end|>\n<|im_start|>user\n{prompt_text}<|im_end|>\n<|im_start|>assistant\n",
+        "parameters": {
+            "max_new_tokens": 500,
+            "temperature": 0.7
+        }
+    }
+    
+    try:
+        data = json.dumps(payload).encode('utf-8')
+        req = urllib.request.Request(API_URL, data=data, headers=headers, method='POST')
+        
+        with urllib.request.urlopen(req) as response:
+            result = json.loads(response.read().decode('utf-8'))
+            if isinstance(result, list) and len(result) > 0:
+                full_text = result[0].get("generated_text", "")
+                # Καθαρισμός απάντησης
+                if "<|im_start|>assistant\n" in full_text:
+                    return full_text.split("<|im_start|>assistant\n")[-1].replace("<|im_end|>", "").strip()
+                return full_text
+            return "Δεν πήρα έγκυρη απάντηση."
+    except Exception as e:
+        return f"⚠️ Σφάλμα API: {str(e)}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    user_memories[user_id] = []
-    await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Έτοιμος για λειτουργία χωρίς όρια!")
+    await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Τώρα λειτουργώ χωρίς εξωτερικές εξαρτήσεις και χωρίς όρια!")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
     user_text = update.message.text
-    user_text_lower = user_text.lower()
-
-    if not HF_TOKEN:
-        await update.message.reply_text("⚠️ Λείπει το HF_TOKEN!")
-        return
-
-    try:
-        if "ειδήσεις" in user_text_lower or "νεα" in user_text_lower or "νέα" in user_text_lower:
-            await update.message.reply_text("🔄 Μαζεύω τις τελευταίες ειδήσεις...")
-            feed = feedparser.parse("https://news.google.com/rss?hl=el&gl=GR&ceid=GR:el")
-            top_news = "\n\n".join([f"• {item.title}" for item in feed.entries[:7]])
-            prompt = f"Είσαι ο Jarvis. Συνοψισε τις ειδήσεις στα ελληνικά:\n\n{top_news}"
-            
-            reply = query_huggingface([{"role": "user", "content": prompt}])
-            await update.message.reply_text(reply)
-        else:
-            prompt = f"Είσαι ο Jarvis, ένας φιλικός AI βοηθός. Απάντησε στα ελληνικά στο εξής: {user_text}"
-            reply = query_huggingface([{"role": "user", "content": prompt}])
-            await update.message.reply_text(reply)
-
-    except Exception as e:
-        await update.message.reply_text(f"⚠️ Σφάλμα: {str(e)}")
+    
+    # Ειδοποίηση ότι ο Jarvis σκέφτεται
+    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+    
+    # Κλήση στο API
+    reply = call_huggingface(user_text)
+    await update.message.reply_text(reply)
 
 async def main():
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
+    if not TOKEN:
+        print("⚠️ Δεν βρέθηκε TELEGRAM_TOKEN!")
+        return
+
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Ο Jarvis ξεκινάει...")
+    print("Ο Jarvis ξεκινάει επιτυχώς...")
     await app.initialize()
     await app.start()
     await app.updater.start_polling(drop_pending_updates=True)
