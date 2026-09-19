@@ -1,3 +1,3 @@
-python-telegram-bot>=21.0.1
-groq>=0.9.0
-feedparser>=6.0.10
+python-telegram-bot
+huggingface_hub
+feedparser
