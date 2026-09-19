@@ -69,7 +69,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_memories[user_id] = [user_memories[user_id][0]] + user_memories[user_id][-20:]
 
             response = groq_client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="llama3-8b-8192",
+
                 messages=user_memories[user_id]
             )
             
