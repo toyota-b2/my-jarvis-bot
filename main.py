@@ -1,30 +1,26 @@
 import os
 import logging
 import feedparser
-import google.generativeai as genai
-from google.api_core.exceptions import ResourceExhausted, GoogleAPIError
+from groq import Groq
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 # Ρύθμιση Logging
 logging.basicConfig(level=logging.INFO)
 
-# Σύνδεση με το Gemini API
-GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
-genai.configure(api_key=GEMINI_KEY)
+# Σύνδεση με το Groq API (Δωρεάν & Υπερταχύ)
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-# Αρχικοποίηση μοντέλου
-model = genai.GenerativeModel('gemini-3.6-flash')
-
-# Λεξικό για διατήρηση της μνήμης (Chat Session) ανά χρήστη
-user_chats = {}
+# Μνήμη συνομιλίας ανά χρήστη
+user_memories = {}
 
 # Εντολή /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user_chats[user_id] = model.start_chat(history=[])
-    
-    await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Πώς μπορώ να σε βοηθήσω;")
+    user_memories[user_id] = [
+        {"role": "system", "content": "Είσαι ο Jarvis, ένας έξυπνος, φιλικός και εξυπηρετικός προσωπικός AI βοηθός. Θυμάσαι τις πληροφορίες που σου δίνει ο χρήστης στη συζήτηση (όπως το όνομά του ή την περιοχή του) και απαντάς πάντα στα ελληνικά."}
+    ]
+    await update.message.reply_text("Γεια σου! Είμαι ο Jarvis. Τώρα κινούμαι με υπερηχητική ταχύτητα χωρίς όρια! Πώς μπορώ να σε βοηθήσω;")
 
 # Κεντρικός μηχανισμός επεξεργασίας μηνυμάτων
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -32,38 +28,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     user_text_lower = user_text.lower()
 
-    if user_id not in user_chats:
-        user_chats[user_id] = model.start_chat(history=[])
+    # Αρχικοποίηση μνήμης αν δεν υπάρχει
+    if user_id not in user_memories:
+        user_memories[user_id] = [
+            {"role": "system", "content": "Είσαι ο Jarvis, ένας έξυπνος, φιλικός και εξυπηρετικός προσωπικός AI βοηθός. Θυμάσαι τις πληροφορίες που σου δίνει ο χρήστης στη συζήτηση (όπως το όνομά του ή την περιοχή του) και απαντάς πάντα στα ελληνικά."}
+        ]
 
-    chat = user_chats[user_id]
+    # Αν η εντολή αφορά ειδήσεις
+    if "ειδήσεις" in user_text_lower or "νεα" in user_text_lower or "νέα" in user_text_lower:
+        await update.message.reply_text("🔄 Μαζεύω τις τελευταίες ειδήσεις...")
+        
+        feed = feedparser.parse("https://news.google.com/rss?hl=el&gl=GR&ceid=GR:el")
+        top_news = "\n\n".join([f"• {item.title}" for item in feed.entries[:7]])
+        
+        prompt = f"Ο χρήστης ζήτησε ειδήσεις: '{user_text}'. Με βάση αυτούς τους τίτλους, κάνε μια γρήγορη σύνοψη:\n\n{top_news}"
+        
+        # Προσθήκη στο ιστορικό
+        user_memories[user_id].append({"role": "user", "content": prompt})
+        
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=user_memories[user_id]
+        )
+        
+        bot_reply = response.choices[0].message.content
+        user_memories[user_id].append({"role": "assistant", "content": bot_reply})
+        await update.message.reply_text(bot_reply)
 
-    try:
-        # Αν η εντολή αφορά ειδήσεις
-        if "ειδήσεις" in user_text_lower or "νεα" in user_text_lower or "νέα" in user_text_lower:
-            await update.message.reply_text("🔄 Μαζεύω τις τελευταίες ειδήσεις...")
-            
-            feed = feedparser.parse("https://news.google.com/rss?hl=el&gl=GR&ceid=GR:el")
-            top_news = "\n\n".join([f"• {item.title}" for item in feed.entries[:7]])
-            
-            prompt = (
-                f"Ο χρήστης ζήτησε ενημέρωση ειδήσεων: '{user_text}'. "
-                f"Με βάση αυτούς τους τίτλους ειδήσεων, κάνε μια σύντομη και καθαρή σύνοψη:\n\n{top_news}"
-            )
-            response = chat.send_message(prompt)
-            await update.message.reply_text(response.text)
+    # Για οποιαδήποτε άλλη κουβέντα (με πλήρη μνήμη)
+    else:
+        user_memories[user_id].append({"role": "user", "content": user_text})
+        
+        # Περιορισμός ιστορικού στα τελευταία 20 μηνύματα για οικονομία
+        if len(user_memories[user_id]) > 20:
+            user_memories[user_id] = [user_memories[user_id][0]] + user_memories[user_id][-19:]
 
-        # Για οποιαδήποτε άλλη πρόταση / ερώτηση
-        else:
-            response = chat.send_message(user_text)
-            await update.message.reply_text(response.text)
-
-    except ResourceExhausted:
-        await update.message.reply_text("⚠️ Ξεπεράστηκε το δωρεάν όριο αιτημάτων του Gemini API. Παρακαλώ περίμενε 1 λεπτό και δοκίμασε ξανά!")
-    except GoogleAPIError as e:
-        await update.message.reply_text("⚠️ Υπήρξε ένα πρόβλημα με το AI. Δοκίμασε σε λίγο.")
-    except Exception as e:
-        logging.error(f"Error: {e}")
-        await update.message.reply_text("⚠️ Υπήρξε ένα άγνωστο σφάλμα.")
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=user_memories[user_id]
+        )
+        
+        bot_reply = response.choices[0].message.content
+        user_memories[user_id].append({"role": "assistant", "content": bot_reply})
+        await update.message.reply_text(bot_reply)
 
 if __name__ == '__main__':
     TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -72,5 +79,5 @@ if __name__ == '__main__':
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    print("Ο Jarvis είναι ενεργός...")
+    print("Ο Jarvis είναι ενεργός μέσω Groq...")
     app.run_polling()
