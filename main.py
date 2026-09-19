@@ -11,7 +11,8 @@ logging.basicConfig(level=logging.INFO)
 # Σύνδεση με το Gemini API
 GEMINI_KEY = os.environ.get("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+model = genai.GenerativeModel('gemini-2.5-flash')
+
 
 # Εντολή /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
