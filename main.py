@@ -18,7 +18,7 @@ user_memories = {}
 
 SYSTEM_PROMPT = (
     "Είσαι ο Jarvis, ένας έξυπνος, φιλικός και εξυπηρετικός προσωπικός AI βοηθός. "
-    "Θυμάσαι τις πληροφορίες που σου δίνει ο χρήστης στη συζήτηση (όπως το όνομά του ή την περιοχή του) "
+    "Θυμάσαι τις πληροφορίες που σου δίνει ο χρήστης στη συζήτηση "
     "και απαντάς πάντα στα ελληνικά."
 )
 
@@ -53,7 +53,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_memories[user_id].append({"role": "user", "content": prompt})
             
             response = groq_client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
+                model="llama-3.1-8b-instant",
                 messages=user_memories[user_id]
             )
             
@@ -65,13 +65,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             user_memories[user_id].append({"role": "user", "content": user_text})
             
-            # Κρατάμε τα τελευταία 20 μηνύματα
             if len(user_memories[user_id]) > 21:
                 user_memories[user_id] = [user_memories[user_id][0]] + user_memories[user_id][-20:]
 
             response = groq_client.chat.completions.create(
                 model="llama-3.1-8b-instant",
-,
                 messages=user_memories[user_id]
             )
             
